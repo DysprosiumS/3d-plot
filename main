@@ -1,0 +1,200 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
+import os
+import glob
+
+
+def load_particle_data(folder_path):
+    """
+    Загружает данные о координатах частиц из файлов X1000.txt, Y1000.txt, Z1000.txt
+    """
+    x_file = os.path.join(folder_path, 'X1000.txt')
+    y_file = os.path.join(folder_path, 'Y1000.txt')
+    z_file = os.path.join(folder_path, 'Z1000.txt')
+
+    # Проверяем существование файлов
+    for file in [x_file, y_file, z_file]:
+        if not os.path.exists(file):
+            raise FileNotFoundError(f"Файл {file} не найден")
+
+    # Загружаем данные
+    x_data = np.loadtxt(x_file)
+    y_data = np.loadtxt(y_file)
+    z_data = np.loadtxt(z_file)
+
+    # Проверяем совпадение размеров
+    if x_data.shape != y_data.shape or x_data.shape != z_data.shape:
+        raise ValueError("Размеры файлов с координатами не совпадают")
+
+    return x_data, y_data, z_data
+
+
+def apply_scale(data, scale):
+    """
+    Применяет масштаб к данным (перевод из пикселей в мм)
+    """
+    return data * scale
+
+
+def plot_particle_trajectories(folder_path, scale=1.0, start_frame=1, end_frame=None,
+                               particle_indices=None, show_plot=True,elev=20, azim=25, roll=0):
+    """
+    Строит трехмерные траектории частиц с учетом масштаба
+
+    Parameters:
+    folder_path: путь к папке с файлами данных
+    scale: масштаб в мм/пиксель (по умолчанию 1.0)
+    start_frame: начальный кадр (по умолчанию 1)
+    end_frame: конечный кадр (по умолчанию все кадры)
+    particle_indices: индексы частиц для отображения (по умолчанию все)
+    show_plot: показывать график сразу
+    elev: угол возвышения (высота обзора) в градусах (по умолчанию 30)
+    azim: азимутальный угол в градусах (по умолчанию 45)
+    roll: угол поворота вокруг оси обзора в градусах (по умолчанию 0
+    """
+
+    # Загружаем данные
+    x_data, y_data, z_data = load_particle_data(folder_path)
+
+    # Применяем масштаб ко всем координатам
+    x_data_mm = apply_scale(x_data, scale)
+    y_data_mm = apply_scale(y_data, scale)
+    z_data_mm = apply_scale(z_data, scale)
+
+    # Корректируем индексы кадров (Python использует 0-based индексацию)
+    start_frame_idx = start_frame - 1
+    if end_frame is None:
+        end_frame_idx = x_data.shape[0] - 1
+    else:
+        end_frame_idx = end_frame - 1
+
+    # Проверяем валидность диапазона кадров
+    if start_frame_idx < 0 or end_frame_idx >= x_data.shape[0] or start_frame_idx > end_frame_idx:
+        raise ValueError("Некорректный диапазон кадров")
+
+    # Выбираем частицы для отображения
+    if particle_indices is None:
+        particle_indices = range(x_data.shape[1])
+
+    # Создаем 3D график
+    fig = plt.figure(figsize=(12, 9))
+    ax = fig.add_subplot(111, projection='3d')
+
+    # Устанавливаем угол обзора
+    ax.view_init(elev=elev, azim=azim, roll=roll)
+
+    # Строим траектории для выбранных частиц
+    for particle_idx in particle_indices:
+        if particle_idx >= x_data.shape[1]:
+            print(f"Предупреждение: частица с индексом {particle_idx} не существует")
+            continue
+
+        # Извлекаем координаты для текущей частицы в заданном диапазоне кадров
+        x_traj = x_data_mm[start_frame_idx:end_frame_idx + 1, particle_idx]
+        y_traj = y_data_mm[start_frame_idx:end_frame_idx + 1, particle_idx]
+        z_traj = z_data_mm[start_frame_idx:end_frame_idx + 1, particle_idx]
+
+        # Рисуем траекторию
+        ax.plot(x_traj, y_traj, z_traj,
+                linewidth=1.5, alpha=0.7,
+                label=f'Частица {particle_idx + 1}')
+
+        # Отмечаем начальную точку
+        ax.scatter(x_traj[0], y_traj[0], z_traj[0],
+                   color='green', s=50, marker='o', alpha=0.8)
+
+        # Отмечаем конечную точку
+        ax.scatter(x_traj[-1], y_traj[-1], z_traj[-1],
+                   color='red', s=50, marker='o', alpha=0.8)
+
+    # Настройки графика с указанием размерности
+    ax.set_xlabel('X координата, мм', fontsize=12)
+    ax.set_ylabel('Y координата, мм', fontsize=12)
+    ax.set_zlabel('Z координата, мм', fontsize=12)
+
+    # Добавляем информацию о масштабе и угле обзора в заголовок
+    title = f'Траектории частиц (кадры {start_frame}-{end_frame_idx+1})'
+    if scale != 1.0:
+        title += f'\nМасштаб: {scale} мм/пиксель'
+    title += f'\nУгол обзора: elev={elev}°, azim={azim}°'
+    ax.set_title(title, fontsize=14)
+
+    # Добавляем легенду (если частиц не слишком много)
+    if len(particle_indices) <= 15:
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    # Включаем сетку
+    ax.grid(True, alpha=0.3)
+
+    # Настраиваем внешний вид осей
+    ax.tick_params(axis='both', which='major', labelsize=10)
+
+    if show_plot:
+        plt.tight_layout()
+        plt.show()
+
+    return fig, ax
+
+''''''
+def calculate_displacements(folder_path, scale=1.0, start_frame=1, end_frame=None, particle_indices=None):
+    """
+    Вычисляет смещения частиц в мм
+    """
+    x_data, y_data, z_data = load_particle_data(folder_path)
+
+    # Применяем масштаб
+    x_data_mm = apply_scale(x_data, scale)
+    y_data_mm = apply_scale(y_data, scale)
+    z_data_mm = apply_scale(z_data, scale)
+
+    # Корректируем индексы кадров
+    start_frame_idx = start_frame - 1
+    if end_frame is None:
+        end_frame_idx = x_data.shape[0] - 1
+    else:
+        end_frame_idx = end_frame - 1
+
+    if particle_indices is None:
+        particle_indices = range(x_data.shape[1])
+
+    displacements = {}
+
+    for particle_idx in particle_indices:
+        if particle_idx >= x_data.shape[1]:
+            continue
+
+        # Вычисляем смещения по каждой координате
+        dx = x_data_mm[end_frame_idx, particle_idx] - x_data_mm[start_frame_idx, particle_idx]
+        dy = y_data_mm[end_frame_idx, particle_idx] - y_data_mm[start_frame_idx, particle_idx]
+        dz = z_data_mm[end_frame_idx, particle_idx] - z_data_mm[start_frame_idx, particle_idx]
+
+        # Общее смещение
+        total_displacement = np.sqrt(dx ** 2 + dy ** 2 + dz ** 2)
+
+        displacements[particle_idx] = {
+            'dx_mm': dx,
+            'dy_mm': dy,
+            'dz_mm': dz,
+            'total_mm': total_displacement
+        }
+
+    return displacements
+''''''
+
+
+folder_path = 'C:/Users/17.3 Active Systems/Downloads/3Д/3Д/'
+
+plot_particle_trajectories(folder_path, scale=0.002, start_frame=1, end_frame=350, particle_indices=range(10))
+#displacements = calculate_displacements(folder_path, scale=0.002, start_frame=1, end_frame=350, particle_indices=range(10))
+
+'''
+# Вид сверху
+plot_particle_trajectories(folder_path, scale=0.1, elev=90, azim=0, particle_indices=[0,1,2])
+
+# Вид сбоку
+plot_particle_trajectories(folder_path, scale=0.1, elev=30, azim=90)
+
+# Произвольный угол
+plot_particle_trajectories(folder_path, scale=0.1, elev=20, azim=60, roll=10)
+'''
